@@ -227,7 +227,7 @@ public static class BackupRunner
         Model.SnapshotRoot root = await SnapshotStore.ReadRootAsync(store, key, latest.Id, ct).ConfigureAwait(false);
         await foreach (SnapshotFile f in SnapshotStore.EnumerateAsync(store, key, root.RootTree, ct).ConfigureAwait(false))
             if (!f.IsDirectory && f.Hash is not null)
-                prior[f.Path] = new PriorFile(f.Size, f.Mtime, f.Hash);
+                prior[f.Path] = new PriorFile(f.Size, f.Mtime, f.Hash, f.Mode);
         return prior;
     }
 
