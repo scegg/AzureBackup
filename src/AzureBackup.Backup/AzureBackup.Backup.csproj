@@ -7,6 +7,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="YamlDotNet" Version="16.*" />
+    <PackageReference Include="NCrontab" Version="3.*" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../AzureBackup.Core/AzureBackup.Core.csproj" />
   </ItemGroup>
 
