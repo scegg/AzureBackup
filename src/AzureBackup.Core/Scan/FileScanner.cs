@@ -22,51 +22,70 @@ public sealed class FileScanner
         _exclude = exclude ?? throw new ArgumentNullException(nameof(exclude));
     }
 
-    public IEnumerable<ScannedEntry> Scan(string root)
+    public IEnumerable<ScannedEntry> Scan(string root, ICollection<SkipWarning>? warnings = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(root);
         string fullRoot = Path.GetFullPath(root);
         if (!Directory.Exists(fullRoot))
             throw new DirectoryNotFoundException($"source root not found: {fullRoot}");
 
-        foreach (ScannedEntry e in Walk(fullRoot, fullRoot))
+        foreach (ScannedEntry e in Walk(fullRoot, fullRoot, warnings))
             yield return e;
     }
 
-    private IEnumerable<ScannedEntry> Walk(string dir, string root)
+    private IEnumerable<ScannedEntry> Walk(string dir, string root, ICollection<SkipWarning>? warnings)
     {
         IEnumerable<string> children;
         try
         {
-            children = Directory.EnumerateFileSystemEntries(dir);
+            // 立即物化,把枚举期异常在此捕获(而非延迟到 foreach)。
+            children = Directory.EnumerateFileSystemEntries(dir).ToList();
         }
-        catch (UnauthorizedAccessException)
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
         {
-            yield break; // skip unreadable directories
+            yield break; // Missing:静默跳过该子树
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            warnings?.Add(new SkipWarning(Rel(root, dir), SkipReason.Unreadable, ex.Message));
+            yield break;
         }
 
         foreach (string path in children.OrderBy(p => p, StringComparer.Ordinal))
         {
-            var info = new FileInfo(path);
-            bool isDir = (info.Attributes & FileAttributes.Directory) != 0;
-            bool isSymlink = (info.Attributes & FileAttributes.ReparsePoint) != 0;
-            string rel = Rel(root, path);
+            ScannedEntry? entry;
+            bool isDir;
+            try
+            {
+                var info = new FileInfo(path);
+                isDir = (info.Attributes & FileAttributes.Directory) != 0;
+                bool isSymlink = (info.Attributes & FileAttributes.ReparsePoint) != 0;
+                string rel = Rel(root, path);
 
-            if (_exclude.IsIgnored(rel, isDir))
+                if (_exclude.IsIgnored(rel, isDir)) continue;
+
+                if (isDir && !isSymlink)
+                    entry = new ScannedEntry(rel, true, 0, ToUtc(info.LastWriteTimeUtc), false);
+                else
+                {
+                    long size = isSymlink ? 0 : info.Length;
+                    entry = new ScannedEntry(rel, false, size, ToUtc(info.LastWriteTimeUtc), isSymlink);
+                }
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                continue; // Missing:该项消失,静默跳过
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                warnings?.Add(new SkipWarning(Rel(root, path), SkipReason.Unreadable, ex.Message));
                 continue;
+            }
 
-            if (isDir && !isSymlink)
-            {
-                yield return new ScannedEntry(rel, true, 0, ToUtc(info.LastWriteTimeUtc), false);
-                foreach (ScannedEntry e in Walk(path, root))
+            yield return entry;
+            if (entry.IsDirectory)
+                foreach (ScannedEntry e in Walk(path, root, warnings))
                     yield return e;
-            }
-            else
-            {
-                // File, or a symlink (to file or dir) — reported, not followed.
-                long size = isSymlink ? 0 : info.Length;
-                yield return new ScannedEntry(rel, false, size, ToUtc(info.LastWriteTimeUtc), isSymlink);
-            }
         }
     }
 

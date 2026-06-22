@@ -83,4 +83,29 @@ public sealed class FileScannerTests : IDisposable
         Assert.False(entry.IsDirectory);
         Assert.Equal(5, entry.Size);
     }
+
+    [Fact]
+    public void Unreadable_directory_is_skipped_with_warning()
+    {
+        if (OperatingSystem.IsWindows()) return; // chmod 语义仅 Unix
+
+        Touch("ok.txt");
+        Touch("secret/inside.txt");
+        string secret = Path.Combine(_root, "secret");
+        File.SetUnixFileMode(secret, UnixFileMode.None); // 000:不可枚举
+        try
+        {
+            var warnings = new List<SkipWarning>();
+            var paths = new FileScanner(GitignoreMatcher.Empty)
+                .Scan(_root, warnings).Select(e => e.RelativePath).ToHashSet();
+
+            Assert.Contains("ok.txt", paths);
+            Assert.DoesNotContain("secret/inside.txt", paths);
+            Assert.Contains(warnings, w => w.Reason == SkipReason.Unreadable && w.Path.Contains("secret"));
+        }
+        finally
+        {
+            File.SetUnixFileMode(secret, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+    }
 }
