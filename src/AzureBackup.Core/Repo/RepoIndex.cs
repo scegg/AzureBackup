@@ -1,3 +1,4 @@
+using AzureBackup.Core.Compression;
 using AzureBackup.Core.Model;
 using AzureBackup.Core.Pack;
 
@@ -15,6 +16,7 @@ public sealed class RepoIndex
         public int Volumes { get; set; }
         public long TotalSize { get; set; }
         public string WrappedKeyBase64 { get; set; } = "";
+        public CompressionCodec Codec { get; set; } = CompressionCodec.Xz;
         public HashSet<string> Members { get; } = new(StringComparer.Ordinal);
     }
 
@@ -30,9 +32,9 @@ public sealed class RepoIndex
         => _byHash.TryGetValue(hash, out location!);
 
     public void AddPack(string packId, int volumes, long totalSize, string wrappedKeyBase64,
-        IReadOnlyDictionary<string, ContentSpan> entries)
+        IReadOnlyDictionary<string, ContentSpan> entries, CompressionCodec codec = CompressionCodec.Xz)
     {
-        var entry = new PackEntry { Volumes = volumes, TotalSize = totalSize, WrappedKeyBase64 = wrappedKeyBase64 };
+        var entry = new PackEntry { Volumes = volumes, TotalSize = totalSize, WrappedKeyBase64 = wrappedKeyBase64, Codec = codec };
         foreach (KeyValuePair<string, ContentSpan> kv in entries)
         {
             _byHash[kv.Key] = new ContentLocation(packId, kv.Value.Offset, kv.Value.Size);
@@ -56,7 +58,7 @@ public sealed class RepoIndex
         var packs = _packs.ToDictionary(
             kv => kv.Key,
             kv => new PackInfo(kv.Value.Volumes, kv.Value.TotalSize, kv.Value.WrappedKeyBase64,
-                [.. kv.Value.Members], LiveCount: 0),
+                [.. kv.Value.Members], LiveCount: 0, kv.Value.Codec),
             StringComparer.Ordinal);
         return new IndexShard(byHash, packs);
     }
@@ -68,7 +70,7 @@ public sealed class RepoIndex
         {
             foreach (KeyValuePair<string, PackInfo> p in shard.Packs)
             {
-                var entry = new PackEntry { Volumes = p.Value.Volumes, TotalSize = p.Value.TotalSize, WrappedKeyBase64 = p.Value.WrappedKeyBase64 };
+                var entry = new PackEntry { Volumes = p.Value.Volumes, TotalSize = p.Value.TotalSize, WrappedKeyBase64 = p.Value.WrappedKeyBase64, Codec = p.Value.Codec };
                 foreach (string m in p.Value.Members) entry.Members.Add(m);
                 index._packs[p.Key] = entry;
             }

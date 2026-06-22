@@ -1,3 +1,5 @@
+using AzureBackup.Core.Compression;
+
 namespace AzureBackup.Core.Model;
 
 // Two-level, content-addressed structure (see docs/format-spec.md).
@@ -39,13 +41,14 @@ public sealed record SnapshotRoot(
 /// decompressed plaintext.</summary>
 public sealed record ContentLocation(string Pack, long Offset, long Size);
 
-/// <summary>Per-pack info for GC/compaction and decryption (wrapped content key).</summary>
+/// <summary>Per-pack info for GC/compaction and decryption (wrapped content key + codec).</summary>
 public sealed record PackInfo(
     int Volumes,
     long TotalSize,
     string WrappedKeyBase64,
     IReadOnlyList<string> Members,
-    int LiveCount);
+    int LiveCount,
+    CompressionCodec Codec = CompressionCodec.Xz);
 
 /// <summary>A shard of the global index: hash → location, plus per-pack info.</summary>
 public sealed record IndexShard(
