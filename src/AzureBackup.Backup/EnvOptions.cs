@@ -4,6 +4,7 @@ using AzureBackup.Core.Notifications;
 using AzureBackup.Core.Pack;
 using AzureBackup.Core.Repo;
 using AzureBackup.Core.Scan;
+using AzureBackup.Core.Storage;
 
 namespace AzureBackup.Backup;
 
@@ -64,6 +65,7 @@ internal static class EnvOptions
             CompactionThreshold = GarbageCollector.ParseThreshold(job?.PackCompaction ?? Get("AZBACKUP_PACK_COMPACTION") ?? "30%"),
             RunGc = !string.Equals(Get("AZBACKUP_GC_MODE"), "off", StringComparison.OrdinalIgnoreCase),
             DryRun = ParseBool(Get("AZBACKUP_DRY_RUN")),
+            DataTier = ParseTier(job?.DataTier ?? Get("AZBACKUP_DATA_TIER")),
         };
     }
 
@@ -99,6 +101,16 @@ internal static class EnvOptions
                 return (long)(double.Parse(value[..^suffix.Length].Trim(), CultureInfo.InvariantCulture) * unit);
         return long.Parse(value, CultureInfo.InvariantCulture);
     }
+
+    public static BlobTier ParseTier(string? value) => value?.Trim().ToLowerInvariant() switch
+    {
+        "hot" => BlobTier.Hot,
+        "cool" => BlobTier.Cool,
+        "cold" => BlobTier.Cold,
+        "archive" => BlobTier.Archive,
+        null or "" => BlobTier.Archive,
+        _ => throw new InvalidOperationException($"AZBACKUP_DATA_TIER: unknown tier '{value}' (Hot/Cool/Cold/Archive)"),
+    };
 
     private static int ParseInt(string? v, int fallback) => int.TryParse(v, out int n) ? n : fallback;
     private static int? ParseNullableInt(string? v) => int.TryParse(v, out int n) ? n : null;

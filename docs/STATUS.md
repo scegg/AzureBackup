@@ -32,8 +32,10 @@
 
 1. **真机端到端验证**:对真实 Azure Storage 跑一次备份+还原(无凭据,本地未验证过 `AzureBlobStore`)。
    - 注意:container 需**预先创建**(代码不自动建);Archive 还原会触发**解冻(数小时)**。
-2. **(便于测试)数据层可配开关**:`AZBACKUP_DATA_TIER` 已在 docs/EnvOptions 文档化,但 **`BackupRunner` 目前把数据卷硬编码为 `BlobTier.Archive`**。
-   建议把 `BackupOptions.DataTier` 接上、上传时使用,并在 `EnvOptions` 读取——这样测试可临时用 `Hot`/`Cool` 避免等待 Archive 解冻。**(小改动,推荐先做以便测试还原)**
+   - 测试时设 `AZBACKUP_DATA_TIER=Hot` 即可避免等待解冻(见下)。
+2. ~~**(便于测试)数据层可配开关**~~ ✅ **已完成**:`BackupOptions.DataTier` 已接通,
+   `BackupRunner` 上传数据卷 + `Compactor` 重打包均使用该层;`EnvOptions` 读取 `AZBACKUP_DATA_TIER`
+   (env / job `dataTier` 覆盖,默认 `Archive`,可选 `Hot`/`Cool`/`Cold`/`Archive`)。
 3. **Docker 镜像实际构建验证**:`./build/docker-build.sh backup`(本机单架构);多架构需 `PUSH=1`。镜像已装 `xz-utils`。
 4. **发布流水线**:GHCR + Docker Hub(打 tag 构建推送);见 `docs/build-and-deploy.md`,此前定为"测试通过后再发"。
 5. **远端 verify 调度接线**:`RemoteVerifier` 已实现,但 `AZBACKUP_VERIFY_MODE`(after-backup/cron/both)尚未接入 CLI。

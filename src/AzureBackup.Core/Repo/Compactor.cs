@@ -15,7 +15,8 @@ public static class Compactor
     /// <summary>Compacts one pack; returns the new pack id, or null if nothing live to move.</summary>
     public static async Task<string?> CompactAsync(
         IBlobStore store, byte[] masterKey, RepoIndex index, string packId,
-        IReadOnlySet<string> liveHashes, string workDir, long volumeSize, CancellationToken ct = default)
+        IReadOnlySet<string> liveHashes, string workDir, long volumeSize,
+        BlobTier dataTier = BlobTier.Archive, CancellationToken ct = default)
     {
         if (!index.Packs.TryGetValue(packId, out RepoIndex.PackEntry? pack))
             return null;
@@ -57,7 +58,7 @@ public static class Compactor
         for (int i = 0; i < built.VolumePaths.Count; i++)
         {
             using (Stream vs = File.OpenRead(built.VolumePaths[i]))
-                await store.PutAsync(RepoLayout.Volume(newId, i), vs, BlobTier.Archive, overwrite: true, ct).ConfigureAwait(false);
+                await store.PutAsync(RepoLayout.Volume(newId, i), vs, dataTier, overwrite: true, ct).ConfigureAwait(false);
             TryDelete(built.VolumePaths[i]);
         }
 

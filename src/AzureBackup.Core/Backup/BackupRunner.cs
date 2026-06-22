@@ -26,6 +26,9 @@ public sealed record BackupOptions
     public double CompactionThreshold { get; init; } = 0.30;
     public bool RunGc { get; init; } = true;
     public bool DryRun { get; init; }
+
+    /// <summary>Access tier for data volumes. Default Archive; set to Hot/Cool for testing to avoid rehydration waits.</summary>
+    public BlobTier DataTier { get; init; } = BlobTier.Archive;
 }
 
 /// <summary>Outcome of a backup run (for reporting / webhook).</summary>
@@ -128,7 +131,7 @@ public static class BackupRunner
                 using (Stream vs = File.OpenRead(built.VolumePaths[i]))
                 {
                     uploadedBytes += vs.Length;
-                    await store.PutAsync(volName, vs, BlobTier.Archive, overwrite: true, ct).ConfigureAwait(false);
+                    await store.PutAsync(volName, vs, o.DataTier, overwrite: true, ct).ConfigureAwait(false);
                 }
                 TryDelete(built.VolumePaths[i]); // spool cleanup after upload
                 volumesUploaded++;
@@ -203,7 +206,7 @@ public static class BackupRunner
         int compacted = 0;
         foreach (string packId in plan.PacksToCompact)
         {
-            string? newId = await Compactor.CompactAsync(store, key, index, packId, live, o.WorkDir, o.VolumeSizeBytes, ct)
+            string? newId = await Compactor.CompactAsync(store, key, index, packId, live, o.WorkDir, o.VolumeSizeBytes, o.DataTier, ct)
                 .ConfigureAwait(false);
             if (newId is not null) compacted++;
         }

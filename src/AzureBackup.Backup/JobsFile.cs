@@ -22,6 +22,7 @@ public sealed class JobSpec
     public string? RetentionMode { get; set; }
     public string? NoCompressExt { get; set; }
     public string? PackCompaction { get; set; }
+    public string? DataTier { get; set; }
 }
 
 internal sealed class JobsDocument
