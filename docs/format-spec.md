@@ -57,7 +57,7 @@
 ### 全局索引(`hash → 物理位置`,可演进)`struct/<objid>` + `refs/index`
 ```
 // 索引分片(追加 + 周期压实;latest-wins):
-{ byHash: { <hash>: { pack: <packid>, entry: <序号>, size } },   // 内容当前所在的包
+{ byHash: { <hash>: { pack: <packid>, offset, size } },         // 内容在该包"解压后明文"中的字节范围
   packs:  { <packid>: { volumes, totalSize, wrappedKey,
                         members: [<hash>...], liveCount } } }     // GC / 压实统计
 // refs/index 列出当前生效的索引分片清单

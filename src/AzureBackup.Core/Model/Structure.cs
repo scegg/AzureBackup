@@ -35,8 +35,9 @@ public sealed record SnapshotRoot(
     string RootTree,
     IReadOnlyDictionary<string, string>? ConfigSnapshot = null);
 
-/// <summary>Where a content hash currently lives (a pack entry).</summary>
-public sealed record ContentLocation(string Pack, int Entry, long Size);
+/// <summary>Where a content hash currently lives: a byte range within the pack's
+/// decompressed plaintext.</summary>
+public sealed record ContentLocation(string Pack, long Offset, long Size);
 
 /// <summary>Per-pack info for GC/compaction and decryption (wrapped content key).</summary>
 public sealed record PackInfo(
