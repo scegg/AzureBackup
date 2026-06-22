@@ -21,10 +21,10 @@ PLATFORMS=linux/arm64 ./build/docker-build.sh restore
 ```
 
 - `PLATFORMS` 默认 `linux/amd64,linux/arm64`;`PUSH=1` 推送(多架构清单无法 `--load` 到本地)。
-- 基础镜像 `mcr.microsoft.com/dotnet/{sdk,runtime}:10.0` 与 `p7zip-full` 均提供两种架构,buildx 自动选择。
+- 基础镜像 `mcr.microsoft.com/dotnet/{sdk,runtime}:10.0` 与 `xz-utils` 均提供两种架构,buildx 自动选择。
 
-- `docker/backup.Dockerfile` → `azbackup-backup`(含 p7zip-full,产物 `azbackup`)
-- `docker/restore.Dockerfile` → `azbackup-restore`(含 p7zip-full,产物 `azrestore`)
+- `docker/backup.Dockerfile` → `azbackup-backup`(含 xz-utils,产物 `azbackup`)
+- `docker/restore.Dockerfile` → `azbackup-restore`(含 xz-utils,产物 `azrestore`)
 
 两者均为多阶段:`sdk:10.0` 构建 → `runtime:10.0` 运行。
 

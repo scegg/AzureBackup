@@ -18,9 +18,9 @@ RUN dotnet publish src/AzureBackup.Backup/AzureBackup.Backup.csproj \
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 WORKDIR /app
 
-# 7-Zip for maximum compression. Adjust package name per base image.
+# xz = LZMA2 (same algorithm family as 7-Zip) for max-compression streaming.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends p7zip-full \
+    && apt-get install -y --no-install-recommends xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app .
