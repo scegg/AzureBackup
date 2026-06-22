@@ -16,18 +16,28 @@ internal static class EnvOptions
 
     public static string? Get(string name) => Environment.GetEnvironmentVariable(name);
 
-    public static string ResolvePassword()
+    public static string ResolvePassword(JobSpec? job = null)
     {
+        string? envName = job?.PasswordEnv;
+        if (!string.IsNullOrWhiteSpace(envName))
+            return Get(envName)?.Trim()
+                ?? throw new InvalidOperationException($"job '{job!.Name}': passwordEnv '{envName}' 未设置");
         string? file = Get("AZBACKUP_PASSWORD_FILE");
         if (!string.IsNullOrEmpty(file))
             return File.ReadAllText(file).Trim();
         return Get("AZBACKUP_PASSWORD")
-            ?? throw new InvalidOperationException("AZBACKUP_PASSWORD or AZBACKUP_PASSWORD_FILE is required");
+            ?? throw new InvalidOperationException("AZBACKUP_PASSWORD or AZBACKUP_PASSWORD_FILE is required(或 per-job passwordEnv)");
     }
 
-    public static string ResolveConnectionString()
-        => Get("AZURE_STORAGE_CONNECTION_STRING")
-           ?? throw new InvalidOperationException("AZURE_STORAGE_CONNECTION_STRING is required");
+    public static string ResolveConnectionString(JobSpec? job = null)
+    {
+        string? envName = job?.ConnectionStringEnv;
+        if (!string.IsNullOrWhiteSpace(envName))
+            return Get(envName)
+                ?? throw new InvalidOperationException($"job '{job!.Name}': connectionStringEnv '{envName}' 未设置");
+        return Get("AZURE_STORAGE_CONNECTION_STRING")
+            ?? throw new InvalidOperationException("AZURE_STORAGE_CONNECTION_STRING is required(或 per-job connectionStringEnv)");
+    }
 
     public static string ResolveContainer(JobSpec? job)
         => job?.Container ?? Get("AZURE_STORAGE_CONTAINER")
@@ -39,7 +49,7 @@ internal static class EnvOptions
     public static BackupOptions BuildOptions(JobSpec? job)
     {
         string source = job?.Source ?? Get("AZBACKUP_SOURCE_PATH") ?? "/backup/source";
-        string spool = Get("AZBACKUP_SPOOL_DIR") ?? Path.Combine(Path.GetTempPath(), "azbackup-spool");
+        string spool = job?.SpoolDir ?? Get("AZBACKUP_SPOOL_DIR") ?? Path.Combine(Path.GetTempPath(), "azbackup-spool");
 
         GitignoreMatcher exclude = LoadRules(job?.ExcludeFile ?? Get("AZBACKUP_EXCLUDE_FILE"));
         var noCompress = new NoCompressPolicy(
@@ -69,15 +79,23 @@ internal static class EnvOptions
         };
     }
 
+    /// <summary>Global summary webhook (fires once per batch).</summary>
     public static WebhookConfig? BuildWebhook()
+        => BuildWebhookFrom(Get("AZBACKUP_WEBHOOK_URL"), Get("AZBACKUP_WEBHOOK_KIND"),
+            Get("AZBACKUP_WEBHOOK_METHOD"), Get("AZBACKUP_WEBHOOK_EVENTS"));
+
+    /// <summary>Per-job webhook (fires once for that job); null if the job sets no webhookUrl.</summary>
+    public static WebhookConfig? BuildJobWebhook(JobSpec? job)
+        => BuildWebhookFrom(job?.WebhookUrl, job?.WebhookKind, job?.WebhookMethod, job?.WebhookEvents);
+
+    private static WebhookConfig? BuildWebhookFrom(string? url, string? kindStr, string? methodStr, string? eventsStr)
     {
-        string? url = Get("AZBACKUP_WEBHOOK_URL");
         if (string.IsNullOrEmpty(url)) return null;
-        WebhookKind kind = string.Equals(Get("AZBACKUP_WEBHOOK_KIND"), "generic", StringComparison.OrdinalIgnoreCase)
+        WebhookKind kind = string.Equals(kindStr, "generic", StringComparison.OrdinalIgnoreCase)
             ? WebhookKind.Generic : WebhookKind.Bark;
-        WebhookMethod method = string.Equals(Get("AZBACKUP_WEBHOOK_METHOD"), "GET", StringComparison.OrdinalIgnoreCase)
+        WebhookMethod method = string.Equals(methodStr, "GET", StringComparison.OrdinalIgnoreCase)
             ? WebhookMethod.Get : WebhookMethod.Post;
-        WebhookEvents events = (Get("AZBACKUP_WEBHOOK_EVENTS")?.ToLowerInvariant()) switch
+        WebhookEvents events = (eventsStr?.ToLowerInvariant()) switch
         {
             "success" => WebhookEvents.Success,
             "both" => WebhookEvents.Both,

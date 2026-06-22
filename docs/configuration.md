@@ -87,12 +87,27 @@ jobs:
   - name: db
     source: /backup/db
     container: db-backup
+    connectionStringEnv: DB_CONN   # 用另一个 storage account(见下)
+    passwordEnv: DB_PW             # 用独立加密口令
+    spoolDir: /spool/db            # 独立工作目录(可选)
+    webhookUrl: https://api.day.app/<key>   # 该 job 单独通知(可选)
     retentionDays: 7
 ```
 
 - 一个容器**按 jobs 顺序**逐个执行;一个 `AZBACKUP_CRON` 触发整批。
 - 每 job 独立 container/仓库/`lock`/报告;**某 job 失败不阻断其余**,失败计入整批报告与通知。
 - 多任务模式下若仍设置 B 类 env → **忽略并警告**。
+
+**per-job 凭据与覆盖(C 类扩展)**:为避免把密钥写进 jobs 文件,连接串与口令用**环境变量名引用**:
+
+| 字段 | 作用 | 未设时回退 |
+|------|------|------------|
+| `connectionStringEnv` | 该 job 用的 storage account——值是**环境变量名**,如 `DB_CONN`,再由 env 提供 `DB_CONN=DefaultEndpoints...` | 全局 `AZURE_STORAGE_CONNECTION_STRING` |
+| `passwordEnv` | 该 job 的加密口令——同样是**环境变量名** | 全局 `AZBACKUP_PASSWORD(_FILE)` |
+| `spoolDir` | 该 job 的工作目录 | 全局 `AZBACKUP_SPOOL_DIR` |
+| `webhookUrl` / `webhookKind` / `webhookMethod` / `webhookEvents` | 该 job 跑完**单独发**的即时通知(与全局汇总通知并存) | 不发 per-job 通知 |
+
+> ✅ 因此多任务**可以各用不同的 storage account 和不同口令**:在 jobs 里写 `connectionStringEnv`/`passwordEnv` 指向不同环境变量即可。
 
 ### 通知 / Webhook(azbackup,共享)
 

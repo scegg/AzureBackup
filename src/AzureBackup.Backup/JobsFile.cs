@@ -12,6 +12,17 @@ public sealed class JobSpec
     public string? ExcludeFile { get; set; }
     public string? NoCompressFile { get; set; }
 
+    // per-job 凭据:引用环境变量名(密钥不入 jobs 文件);未设则回退全局 env。
+    public string? ConnectionStringEnv { get; set; }
+    public string? PasswordEnv { get; set; }
+
+    // per-job 工作目录与即时通知(全局汇总通知仍独立保留)。
+    public string? SpoolDir { get; set; }
+    public string? WebhookUrl { get; set; }
+    public string? WebhookKind { get; set; }
+    public string? WebhookMethod { get; set; }
+    public string? WebhookEvents { get; set; }
+
     public string? VolumeSize { get; set; }
     public string? GroupFileMax { get; set; }
     public string? PackTargetSize { get; set; }
