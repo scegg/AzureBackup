@@ -63,7 +63,7 @@ static async Task<int> RunBatchAsync(IReadOnlyList<JobSpec?> jobs, string passwo
             BackupReport r = await BackupRunner.RunAsync(store, password, options);
             string line = r.Skipped
                 ? $"[{name}] skipped (lock held)"
-                : $"[{name}] snapshot={r.SnapshotId} new/mod={r.NewOrModified} packs={r.PacksCreated} vols={r.VolumesUploaded} bytes={r.UploadedBytes} delSnaps={r.SnapshotsDeleted} delPacks={r.PacksDeleted}";
+                : $"[{name}] snapshot={r.SnapshotId} new/mod={r.NewOrModified} packs={r.PacksCreated} vols={r.VolumesUploaded} bytes={r.UploadedBytes} delSnaps={r.SnapshotsDeleted} delPacks={r.PacksDeleted} compacted={r.PacksCompacted}";
             Console.WriteLine(line);
             summary.AppendLine(line);
         }

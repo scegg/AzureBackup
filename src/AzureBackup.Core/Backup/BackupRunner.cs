@@ -40,7 +40,7 @@ public sealed record BackupReport(
     long UploadedBytes,
     int SnapshotsDeleted,
     int PacksDeleted,
-    int PacksEligibleForCompaction,
+    int PacksCompacted,
     bool DryRun,
     bool Skipped = false);
 
@@ -199,11 +199,19 @@ public static class BackupRunner
             index.RemovePack(packId);
         }
 
-        if (plan.PacksToDelete.Count > 0)
+        // Compaction: repack survivors of sparse packs, then delete the old packs.
+        int compacted = 0;
+        foreach (string packId in plan.PacksToCompact)
+        {
+            string? newId = await Compactor.CompactAsync(store, key, index, packId, live, o.WorkDir, o.VolumeSizeBytes, ct)
+                .ConfigureAwait(false);
+            if (newId is not null) compacted++;
+        }
+
+        if (plan.PacksToDelete.Count > 0 || compacted > 0)
             await OverwriteIndexAsync(store, key, index, ct).ConfigureAwait(false);
 
-        // Compaction execution is deferred; report how many packs are eligible.
-        return (doomed.Count, plan.PacksToDelete.Count, plan.PacksToCompact.Count);
+        return (doomed.Count, plan.PacksToDelete.Count, compacted);
     }
 
     private static async Task<Dictionary<string, PriorFile>> LoadPriorAsync(IBlobStore store, byte[] key, CancellationToken ct)
