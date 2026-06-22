@@ -1,0 +1,19 @@
+# Keep the Docker build context small.
+**/bin/
+**/obj/
+**/out/
+**/publish/
+
+.git/
+.github/
+.idea/
+.vs/
+.vscode/
+
+docs/
+tests/
+
+*.md
+*.env
+.env.*
+*.user

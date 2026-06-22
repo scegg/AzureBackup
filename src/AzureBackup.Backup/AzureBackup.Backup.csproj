@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AzureBackup.Backup</RootNamespace>
+    <AssemblyName>azbackup</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../AzureBackup.Core/AzureBackup.Core.csproj" />
+  </ItemGroup>
+
+</Project>

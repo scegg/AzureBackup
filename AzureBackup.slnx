@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AzureBackup.Backup/AzureBackup.Backup.csproj" />
+    <Project Path="src/AzureBackup.Core/AzureBackup.Core.csproj" />
+    <Project Path="src/AzureBackup.Restore/AzureBackup.Restore.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AzureBackup.Core.Tests/AzureBackup.Core.Tests.csproj" />
+  </Folder>
+</Solution>
