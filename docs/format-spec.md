@@ -11,17 +11,18 @@
 
 ```
 <repo>/
-  config                  # 仓库配置 + 密码校验令牌 + KDF 盐/参数。Hot,加密(盐非机密但受完整性保护)
-  root/<snapshotId>       # 【顶层】快照根对象:很小,指向根 tree 对象 + 索引分片清单 + run 元数据。Hot,加密
+  config                  # 仓库配置 + 密码校验令牌 + KDF 盐/参数。Hot,加密
   refs/snapshots          # 快照清单(id + 时间),小。Hot,加密
-  struct/<objid>.<n>      # 【二级】结构分片:tree 对象 / 索引分片;过大时再分卷(.<n>)。Hot,加密
+  refs/index              # 全局索引的当前分片清单(小,可覆盖)。Hot,加密
+  root/<snapshotId>       # 快照根对象:指向根 tree + run 元数据(**不含物理位置**)。Hot,加密
+  struct/<objid>.<n>      # tree 对象 与 索引分片;过大时再分卷(.<n>)。Hot,加密
   packs/<packid>.<n>      # pack 的第 n 个卷(数据本体)。Archive,加密
   lock                    # 分布式锁(租约)。Hot
 ```
 
-- `<snapshotId>`、`<objid>`、`<packid>` 为**不透明标识**(随机或基于密文 hash),**不泄露任何明文**。
-- 卷号 `<n>` 从 0 起;某对象/pack 的卷数记录在引用它的上层对象里。
-- ✅ **所有结构对象(config / root / refs / struct/*)一律 Hot**;**仅 `packs/*` 在 Archive**。
+- `<snapshotId>`、`<objid>`、`<packid>` 为**不透明标识**,**不泄露任何明文**。
+- ✅ **所有结构对象一律 Hot**;**仅 `packs/*` 在 Archive**。
+- 🔑 **关键解耦(应对复杂交叉替换)**:**快照/目录树只按内容 `hash` 引用**;`hash → 物理位置(pack/entry)` 由**全局索引**维护。重复变更、压实重打包**只更新索引**,**已写的快照永不改动**。
 
 ## 2. 存储层
 
@@ -38,34 +39,40 @@
 ### 顶层:snapshot 根对象 `root/<snapshotId>`
 ```
 { formatVersion, snapshotId, createdAtUtc,
-  rootTree: <objid>,                 // 指向根目录的 tree 对象(二级)
-  indexShards: [ <objid>... ],       // 本快照可见的索引分片清单
+  rootTree: <objid>,                 // 指向根目录的 tree 对象
   configSnapshot: { ... } }          // 本次运行关键配置快照
 ```
+- **不含物理位置**:快照只认 `rootTree` → 各级 tree → 文件 `hash`;物理位置全由全局索引解析。快照一旦写出**永不修改**。
 
-### 二级:tree 对象(每目录一个,内容寻址)`struct/<objid>`
+### tree 对象(每目录一个,内容寻址)`struct/<objid>`
 ```
 { entries: [
-    { name, type: dir, child: <objid> },                         // 子目录 → 另一个 tree 对象
-    { name, type: file, size, mtime, mode, hash,
-      pack: <packid>, entry: <序号> } ],
-  // 超大目录:entries 过多时本对象再分片,next: <objid> 链接后续分片
-  next?: <objid> }
+    { name, type: dir,  child: <objid> },                  // 子目录 → 另一个 tree 对象
+    { name, type: file, size, mtime, mode, hash } ],       // **仅按 hash 引用内容,不写 pack**
+  next?: <objid> }                                          // 超大目录:条目过多则再分片
 ```
-- **增量复用**:未变目录的 tree 对象 `objid` 不变 → 直接复用,不重写、不重传。
+- **增量复用**:未变目录的 `objid` 不变 → 直接复用,不重写、不重传。
 - 文件名只存在于(加密后的)tree 对象中;blob 名不可逆。
 
-### 二级:索引分片 `struct/<objid>`(追加式)
+### 全局索引(`hash → 物理位置`,可演进)`struct/<objid>` + `refs/index`
 ```
-{ byHash: { <hash>: { pack, entry, size } },                     // 去重
-  packs:  { <packid>: { volumes: <n>, totalSize, members: [<hash>...] } } } // GC 引用
+// 索引分片(追加 + 周期压实;latest-wins):
+{ byHash: { <hash>: { pack: <packid>, entry: <序号>, size } },   // 内容当前所在的包
+  packs:  { <packid>: { volumes, totalSize, wrappedKey,
+                        members: [<hash>...], liveCount } } }     // GC / 压实统计
+// refs/index 列出当前生效的索引分片清单
 ```
-- 每批新 pack 产生**新的索引分片**(追加),不重写巨型索引;GC 时合并压实旧分片。
+- **解析**:还原/校验时 `文件 hash →(查索引)→ pack/entry/卷`。
+- **去重**:新文件 hash 命中索引即引用既有包,不重传。
+- **交叉替换/压实只动索引**:某内容从旧包搬到新包(压实),只**改写其 `byHash` 条目** `hash→新 pack`,**快照与 tree 一字不动**。重复变更、链式压实皆如此。
+- **GC**:`live = 所有保留快照的 tree 可达 hash 集合`;不在其中的 hash 从索引剔除;`liveCount=0` 的包(全部卷)删除;`死重比例 = 1 - liveCount/members` 触发压实。
+- **可扩展**:索引按分片存储、可分卷、周期压实,绝不形成单一巨型文件。
 
 ### config(仓库配置,部分非机密)
 ```
 { formatVersion, kdf: { algo: "argon2id", salt, params },
   pwCheck: <用 master_key 加密的已知校验值>,    // 密码校验令牌
+  hashAlgo: "blake3",                           // 仓库初始化时固定,之后不可改
   volumeSizeBytes, repoLabel?, ... }
 ```
 

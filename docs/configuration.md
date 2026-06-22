@@ -20,6 +20,8 @@
 | `AZURE_STORAGE_ACCOUNT` | Storage 账户名 | — |
 | `AZURE_STORAGE_CONNECTION_STRING?` / `AZURE_STORAGE_SAS?` / Managed Identity / SP | 鉴权(经 `Azure.Identity`,`AZURE_CLIENT_ID` 等) | — |
 | `AZBACKUP_JOBS_FILE?` | 多任务 jobs 文件路径;**设置即进入多任务模式** | — |
+| `AZBACKUP_DRY_RUN?` | 干跑:只扫描算变更与统计,不压缩/加密/上传/改仓库 | `false` |
+| `AZBACKUP_HASH_ALGO?` | hash 算法(仓库初始化时固定,之后不可改) | `blake3` |
 | `AZBACKUP_CRON?` | 备份 cron;空=单次运行后退出 | — |
 | `AZBACKUP_GC_MODE?` | `after-backup` / `cron` / `both` / `off` | `after-backup` |
 | `AZBACKUP_GC_CRON?` | GC 独立 cron(当 `GC_MODE=cron`/`both`) | — |
@@ -29,7 +31,7 @@
 | `AZBACKUP_SPOOL_DIR?` | 待上传卷暂存目录 | 容器内临时目录 |
 | `AZBACKUP_SPOOL_MAX_FILES?` | spool 卷数上限 | `500` |
 | `AZBACKUP_SPOOL_MAX_BYTES?` | spool 总字节上限,如 `2GB` | `2GB` |
-| `AZBACKUP_LOCK_TTL?` | 锁租约超时(崩溃后释放) | `1h` |
+| `AZBACKUP_LOCK_TTL?` | 锁租约时长(运行时自动续租;崩溃后约此时长内自动过期)。高级项,一般不必改 | `60s` |
 | `AZBACKUP_LOG_LEVEL?` | 日志级别(`debug/info/warn/error`) | `info` |
 | `AZBACKUP_REPORT_PATH?` | 运行报告输出文件;空=仅 stdout | — |
 | `AZBACKUP_WEBHOOK_*` | 通知,见下「通知 / Webhook」 | — |
@@ -53,6 +55,10 @@
 | 变量 | job 字段 | 说明 | 默认 |
 |------|---------|------|------|
 | `AZBACKUP_VOLUME_SIZE?` | `volumeSize` | 分卷大小 | `100MB` |
+| `AZBACKUP_GROUP_FILE_MAX?` | `groupFileMax` | ≤此值的文件才参与分组打包;更大者单独成包 | `1MB` |
+| `AZBACKUP_PACK_TARGET_SIZE?` | `packTargetSize` | 分组包目标总大小(压缩前),达到即封包 | `256MB` |
+| `AZBACKUP_PACK_MAX_FILES?` | `packMaxFiles` | 分组包最大文件数,达到即封包 | `4096` |
+| `AZBACKUP_PACK_COMPACTION?` | `packCompaction` | 死重压实阈值:死重比例 ≥ 此值则重打存活成员、删旧包回收空间(⚠️ 对仅存于历史快照的成员需解冻 Archive + 重写 + 早删);`off`=100%死才删(不重打) | `30%` |
 | `AZBACKUP_NOCOMPRESS_EXT?` | `noCompressExt` | 不压缩扩展名清单(逗号分隔) | `7z,rar,zip,gz,mp4,mkv,jpg,png,...` |
 | `AZBACKUP_FORCE_HASH?` | `forceHash` | mtime 未变仍强制重算 hash | `false` |
 | `AZBACKUP_VOLATILE_FILE_MAX_REPACK?` | `volatileFileMaxRepack` | 文件持续变动时该 pack 的最大重打包次数(≠ 上传退避重试) | `3` |
