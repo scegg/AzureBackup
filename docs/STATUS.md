@@ -30,8 +30,9 @@
 
 ## 2. 待办(优先级从高到低)
 
-1. **真机端到端验证**:对真实 Azure Storage 跑一次备份+还原(无凭据,本地未验证过 `AzureBlobStore`)。
-   - 注意:container 需**预先创建**(代码不自动建);Archive 还原会触发**解冻(数小时)**。
+1. **真机端到端验证**:对真实 Azure Storage 跑一次备份+还原。
+   - ✅ **本地已用 Azurite 跑通完整逻辑链路**(含 `AzureBlobStore`:上传/下载/列举/删除/blob 租约锁)——见 §3 的 `build/local-e2e-test.sh`。
+   - 真机仅剩两点与本地不同需现场确认:**Archive 解冻(数小时)** 与 **container 需预先创建**(代码不自动建)。
    - 测试时设 `AZBACKUP_DATA_TIER=Hot` 即可避免等待解冻(见下)。
 2. ~~**(便于测试)数据层可配开关**~~ ✅ **已完成**:`BackupOptions.DataTier` 已接通,
    `BackupRunner` 上传数据卷 + `Compactor` 重打包均使用该层;`EnvOptions` 读取 `AZBACKUP_DATA_TIER`
@@ -50,7 +51,20 @@ git clone https://github.com/scegg/AzureBackup.git && cd AzureBackup
 docker build -f docker/restore.Dockerfile -t azrestore:local .
 ```
 
-跑一次备份(需 Azure 连接串 + 已存在的空 container):
+### 本地 Docker 端到端测试(无需 Azure 凭据)✅ 已验证
+
+用 Azurite 模拟 Azure Storage,一键跑通 备份→去重→还原→逐字节校验→改动产新包→local verify→错密码拒绝。
+关键:数据层用 `AZBACKUP_DATA_TIER=Hot`(Azurite 不支持 Archive 解冻;逻辑链路与真机一致):
+
+```bash
+BUILD=1 ./build/local-e2e-test.sh   # 先构建镜像再测;之后可省 BUILD=1 复用镜像
+KEEP=1  ./build/local-e2e-test.sh   # 保留 azurite/网络/临时目录便于排查
+```
+
+脚本自动:起 Azurite → 预建 container → 造测试数据(文本/二进制/不压缩扩展名/子目录/空目录/特定 mtime)
+→ 备份×2 → 还原 → `diff -r` 校验 → 改动再备份 → 内置 local verify → 错密码拒绝 → 清理。
+
+跑一次真机备份(需 Azure 连接串 + 已存在的空 container):
 ```bash
 docker run --rm \
   -v /要备份:/backup/source:ro \
