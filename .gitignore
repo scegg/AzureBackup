@@ -4,6 +4,9 @@ obj/
 out/
 publish/
 
+# NAS export artifacts (镜像 tar.gz + 含密钥的 compose)
+dist/
+
 # Rider / VS / VS Code
 .idea/
 .vs/
