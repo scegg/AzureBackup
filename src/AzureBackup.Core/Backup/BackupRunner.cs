@@ -236,8 +236,9 @@ public static class BackupRunner
             if (reason == SkipReason.Unreadable)
             {
                 unreadablePaths.Add(e.RelativePath);
-                if (!isBound)
-                    warnings.Add(new SkipWarning(e.RelativePath, SkipReason.Unreadable, "dedup sibling of unreadable content"));
+                // 报错于报告:打不开的文件/目录都产出一条警告(打包期 boundPath 与 dedup 兄弟均报)。
+                warnings.Add(new SkipWarning(e.RelativePath, SkipReason.Unreadable,
+                    isBound ? "unreadable while packing" : "dedup sibling of unreadable content"));
             }
             else missingPaths.Add(e.RelativePath);
         }

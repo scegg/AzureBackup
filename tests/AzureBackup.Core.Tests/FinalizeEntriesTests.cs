@@ -26,6 +26,8 @@ public sealed class FinalizeEntriesTests
         Assert.Equal(420 /* 0644 octal */, result[0].Mode);
         Assert.Contains("a.txt", unr);
         Assert.Empty(miss);
+        // 打包期 boundPath 打不开也要报错于报告。
+        Assert.Contains(warn, w => w.Path == "a.txt" && w.Reason == SkipReason.Unreadable);
     }
 
     [Fact]
