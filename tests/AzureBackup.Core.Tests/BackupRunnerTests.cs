@@ -4,6 +4,7 @@ using AzureBackup.Core.Compression;
 using AzureBackup.Core.Crypto;
 using AzureBackup.Core.Pack;
 using AzureBackup.Core.Repo;
+using AzureBackup.Core.Scan;
 using AzureBackup.Core.Storage;
 using Xunit;
 
@@ -128,6 +129,62 @@ public sealed class BackupRunnerTests : IDisposable
     }
 
     [Fact]
+    public async Task Unreadable_changed_file_carries_forward_prior_with_warning()
+    {
+        if (!XzCompressor.IsAvailable() || OperatingSystem.IsWindows()) return;
+
+        Write("a.txt", "v1");
+        var store = new InMemoryBlobStore();
+        await BackupRunner.RunAsync(store, Password, Options());
+
+        System.Threading.Thread.Sleep(10);
+        Write("a.txt", "v2 changed");
+        string full = Path.Combine(_src, "a.txt");
+        File.SetLastWriteTimeUtc(full, DateTime.UtcNow.AddSeconds(5));
+        File.SetUnixFileMode(full, UnixFileMode.None);
+        try
+        {
+            BackupReport r = await BackupRunner.RunAsync(store, Password, Options());
+
+            Assert.NotNull(r.SnapshotId);
+            Assert.Equal(1, r.SkippedUnreadable);
+            Assert.NotNull(r.Warnings);
+            Assert.Contains(r.Warnings!, w => w.Path.Contains("a.txt"));
+            await AssertRecovers(store, "a.txt", "v1");
+        }
+        finally
+        {
+            File.SetUnixFileMode(full, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
+    public async Task Unreadable_new_file_is_omitted_with_warning()
+    {
+        if (!XzCompressor.IsAvailable() || OperatingSystem.IsWindows()) return;
+
+        Write("keep.txt", "ok");
+        Write("locked.txt", "secret");
+        string locked = Path.Combine(_src, "locked.txt");
+        File.SetUnixFileMode(locked, UnixFileMode.None);
+        try
+        {
+            var store = new InMemoryBlobStore();
+            BackupReport r = await BackupRunner.RunAsync(store, Password, Options());
+
+            Assert.NotNull(r.SnapshotId);
+            Assert.True(r.SkippedUnreadable >= 1);
+            Assert.Contains(r.Warnings!, w => w.Path.Contains("locked.txt"));
+            await AssertRecovers(store, "keep.txt", "ok");
+            await AssertMissing(store, "locked.txt");
+        }
+        finally
+        {
+            File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        }
+    }
+
+    [Fact]
     public async Task Skips_when_lock_is_held()
     {
         Write("a.txt", "x");
@@ -161,6 +218,15 @@ public sealed class BackupRunnerTests : IDisposable
         await foreach (SnapshotFile f in SnapshotStore.EnumerateAsync(store, repo.MasterKey, root.RootTree))
             if (f.Path == path && f.IsDirectory) found = true;
         Assert.True(found, $"directory {path} not found in snapshot");
+    }
+
+    private static async Task AssertMissing(InMemoryBlobStore store, string path)
+    {
+        Repository repo = await Repository.OpenAsync(store, Password);
+        var list = await SnapshotStore.ReadSnapshotListAsync(store, repo.MasterKey);
+        var root = await SnapshotStore.ReadRootAsync(store, repo.MasterKey, list.OrderByDescending(s => s.CreatedAtUtc).First().Id);
+        await foreach (SnapshotFile f in SnapshotStore.EnumerateAsync(store, repo.MasterKey, root.RootTree))
+            Assert.False(f.Path == path && !f.IsDirectory, $"{path} should be omitted");
     }
 
     private static async Task<byte[]> RecoverFile(InMemoryBlobStore store, string path)
