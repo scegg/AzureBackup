@@ -3,7 +3,13 @@
 > 给"换机器后继续"的交接文档。任务清单/记忆只存在于上一台机器的本地 `~/.claude`,
 > 不随 git clone 走 —— **本文件是权威的进度与待办来源**。
 
-最后更新:见 git log。当前:**功能闭环完成,126 单测全过,已 push 到 `origin/main`。**
+最后更新:见 git log。当前:**功能闭环完成,134 单测全过。**
+
+> 新增(分支 `feat/skip-vanished-unreadable`):**备份期容错**——扫描/打包过程中
+> 文件或目录**丢失**(已删除)则静默跳过并从本次结构省略;**打不开**(权限/锁定)则跳过、
+> 在报告中报警告,并**沿用上次快照的版本**(无历史版本则省略)。单文件失败不再使整任务崩溃
+> (成功带警告,退出码 0)。结构(快照)在打包后终结再写——开始时无法知道完整文件列表。
+> 压实路径保持严格(绝不跳过存活成员)。报告新增 `skipMissing`/`skipUnreadable` 与 Unreadable 清单。
 
 ## 1. 已实现(全部在 `AzureBackup.Core`,均有单测)
 
@@ -12,7 +18,7 @@
 | 加密 | `Crypto/` | Argon2id KDF、AES-256-GCM 信封(`Aead`)、内容密钥包裹、密码校验令牌、**分段流式加密** `SegmentedCipher`(大 pack) |
 | 哈希 | `Hashing/ContentHasher` | BLAKE3(缓冲 + 流式) |
 | 压缩 | `Compression/` | `ICompressor` + `Store` + `Xz`(LZMA2,shell `xz -9e`) |
-| 扫描 | `Scan/` | `GitignoreMatcher`、`FileScanner`(剪枝/空目录/符号链接)、`ChangeDetector`(mtime 闸门) |
+| 扫描 | `Scan/` | `GitignoreMatcher`、`FileScanner`(剪枝/空目录/符号链接;**枚举失败容错+警告**)、`ChangeDetector`(mtime 闸门)、`SkipWarning`/`SkipReason` |
 | 打包 | `Pack/` | `NoCompressPolicy`、`PackGrouper`(目录×codec)、`PackBuilder`/`PackReader` |
 | 分卷 | `Volumes/` | `VolumeSplitter`、`VolumeWriter`(写入即滚动切分) |
 | 存储 | `Storage/` | `IBlobStore`、`RetryPolicy`(5/30/90/300s,2h)、`InMemoryBlobStore`(测试)、`AzureBlobStore`、租约锁 |
@@ -46,7 +52,7 @@
 
 ```bash
 git clone https://github.com/scegg/AzureBackup.git && cd AzureBackup
-./build/build.sh                    # 编译 + 全部单测(126)
+./build/build.sh                    # 编译 + 全部单测(134)
 ./build/docker-build.sh backup      # 构建备份镜像(本机单架构)
 docker build -f docker/restore.Dockerfile -t azrestore:local .
 ```

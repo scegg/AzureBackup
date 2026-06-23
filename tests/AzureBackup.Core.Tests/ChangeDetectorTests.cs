@@ -23,7 +23,7 @@ public class ChangeDetectorTests
     [Fact]
     public void Unchanged_mtime_and_size_skips_hashing()
     {
-        var prior = new PriorFile(10, T0, "h1");
+        var prior = new PriorFile(10, T0, "h1", 0);
         int calls = 0;
         var d = ChangeDetector.Detect(prior, size: 10, mtime: T0, forceHash: false,
             computeHash: () => { calls++; return "h2"; });
@@ -37,7 +37,7 @@ public class ChangeDetectorTests
     [Fact]
     public void Mtime_changed_but_same_content_is_Unchanged_after_hash()
     {
-        var prior = new PriorFile(10, T0, "h1");
+        var prior = new PriorFile(10, T0, "h1", 0);
         var d = ChangeDetector.Detect(prior, size: 10, mtime: T0.AddSeconds(5), forceHash: false,
             computeHash: () => "h1");
 
@@ -49,7 +49,7 @@ public class ChangeDetectorTests
     [Fact]
     public void Mtime_changed_and_different_content_is_Modified()
     {
-        var prior = new PriorFile(10, T0, "h1");
+        var prior = new PriorFile(10, T0, "h1", 0);
         var d = ChangeDetector.Detect(prior, size: 10, mtime: T0.AddSeconds(5), forceHash: false,
             computeHash: () => "h2");
 
@@ -60,7 +60,7 @@ public class ChangeDetectorTests
     [Fact]
     public void Size_changed_with_same_mtime_still_rehashes()
     {
-        var prior = new PriorFile(10, T0, "h1");
+        var prior = new PriorFile(10, T0, "h1", 0);
         int calls = 0;
         var d = ChangeDetector.Detect(prior, size: 20, mtime: T0, forceHash: false,
             computeHash: () => { calls++; return "h2"; });
@@ -72,7 +72,7 @@ public class ChangeDetectorTests
     [Fact]
     public void ForceHash_ignores_mtime_fast_path()
     {
-        var prior = new PriorFile(10, T0, "h1");
+        var prior = new PriorFile(10, T0, "h1", 0);
         int calls = 0;
         var d = ChangeDetector.Detect(prior, size: 10, mtime: T0, forceHash: true,
             computeHash: () => { calls++; return "h1"; });

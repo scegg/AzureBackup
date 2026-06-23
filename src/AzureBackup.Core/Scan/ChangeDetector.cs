@@ -8,7 +8,7 @@ public enum ChangeKind
 }
 
 /// <summary>A file's metadata as recorded by the previous snapshot.</summary>
-public sealed record PriorFile(long Size, DateTimeOffset Mtime, string Hash);
+public sealed record PriorFile(long Size, DateTimeOffset Mtime, string Hash, int Mode);
 
 /// <summary>
 /// Decides whether a file changed since the last snapshot, using mtime as the gate

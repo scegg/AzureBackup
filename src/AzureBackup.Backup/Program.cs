@@ -4,6 +4,7 @@ using System.Text;
 using AzureBackup.Backup;
 using AzureBackup.Core.Backup;
 using AzureBackup.Core.Notifications;
+using AzureBackup.Core.Scan;
 using AzureBackup.Core.Storage;
 using NCrontab;
 
@@ -66,7 +67,10 @@ static async Task<int> RunBatchAsync(IReadOnlyList<JobSpec?> jobs, WebhookConfig
             BackupReport r = await BackupRunner.RunAsync(store, password, options);
             line = r.Skipped
                 ? $"[{name}] skipped (lock held)"
-                : $"[{name}] snapshot={r.SnapshotId} new/mod={r.NewOrModified} packs={r.PacksCreated} vols={r.VolumesUploaded} bytes={r.UploadedBytes} delSnaps={r.SnapshotsDeleted} delPacks={r.PacksDeleted} compacted={r.PacksCompacted}";
+                : $"[{name}] snapshot={r.SnapshotId} new/mod={r.NewOrModified} packs={r.PacksCreated} vols={r.VolumesUploaded} bytes={r.UploadedBytes} delSnaps={r.SnapshotsDeleted} delPacks={r.PacksDeleted} compacted={r.PacksCompacted} skipMissing={r.SkippedMissing} skipUnreadable={r.SkippedUnreadable}";
+            if (r.Warnings is { Count: > 0 })
+                foreach (SkipWarning w in r.Warnings)
+                    line += $"\n  ! unreadable: {w.Path}";
             Console.WriteLine(line);
         }
         catch (Exception ex)

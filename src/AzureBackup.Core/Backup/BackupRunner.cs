@@ -45,7 +45,10 @@ public sealed record BackupReport(
     int PacksDeleted,
     int PacksCompacted,
     bool DryRun,
-    bool Skipped = false);
+    bool Skipped = false,
+    int SkippedMissing = 0,
+    int SkippedUnreadable = 0,
+    IReadOnlyList<SkipWarning>? Warnings = null);
 
 /// <summary>
 /// Runs one backup job: scan → change-detect → pack changed content → upload (Archive)
@@ -80,10 +83,17 @@ public static class BackupRunner
         var openers = new Dictionary<string, Func<Stream>>(StringComparer.Ordinal);
         int files = 0, dirs = 0, changed = 0, unchanged = 0;
 
+        var warnings = new List<SkipWarning>();
+        var failedContent = new Dictionary<string, SkipReason>(StringComparer.Ordinal);
+        var failedPath = new Dictionary<string, SkipReason>(StringComparer.Ordinal);
+        var hashBoundPath = new Dictionary<string, string>(StringComparer.Ordinal);
+        var missingPaths = new HashSet<string>(StringComparer.Ordinal);
+        var unreadablePaths = new HashSet<string>(StringComparer.Ordinal);
+
         string root = Path.GetFullPath(o.SourcePath);
         var scanner = new FileScanner(o.Exclude);
 
-        foreach (ScannedEntry se in scanner.Scan(root))
+        foreach (ScannedEntry se in scanner.Scan(root, warnings))
         {
             if (se.IsSymlink) continue; // v1: symlink content not backed up
 
@@ -97,8 +107,25 @@ public static class BackupRunner
 
             files++;
             prior.TryGetValue(se.RelativePath, out PriorFile? p);
-            ChangeDetector.Decision d = ChangeDetector.Detect(p, se.Size, se.Mtime, o.ForceHash,
-                () => ContentHasher.ToHex(ContentHasher.HashStream(File.OpenRead(full))));
+            ChangeDetector.Decision d;
+            try
+            {
+                d = ChangeDetector.Detect(p, se.Size, se.Mtime, o.ForceHash,
+                    () => ContentHasher.ToHex(ContentHasher.HashStream(File.OpenRead(full))));
+            }
+            catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+            {
+                missingPaths.Add(se.RelativePath);
+                continue;
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+            {
+                unreadablePaths.Add(se.RelativePath);
+                warnings.Add(new SkipWarning(se.RelativePath, SkipReason.Unreadable, ex.Message));
+                if (p is not null)
+                    entries.Add(new SnapshotEntry(se.RelativePath, false, p.Size, p.Mtime, p.Mode, p.Hash));
+                continue;
+            }
 
             if (d.Kind == ChangeKind.Unchanged) unchanged++; else changed++;
             entries.Add(new SnapshotEntry(se.RelativePath, false, se.Size, se.Mtime, GetMode(full), d.Hash));
@@ -106,12 +133,15 @@ public static class BackupRunner
             if (!index.Contains(d.Hash) && !openers.ContainsKey(d.Hash))
             {
                 openers[d.Hash] = () => File.OpenRead(full);
+                hashBoundPath[d.Hash] = se.RelativePath;
                 toUpload.Add(new GroupItem(se.RelativePath, d.Hash, se.Size, o.NoCompress.CodecFor(se.RelativePath)));
             }
         }
 
         if (o.DryRun)
-            return new BackupReport(null, files, dirs, changed, unchanged, 0, 0, 0, 0, 0, 0, DryRun: true);
+            return new BackupReport(null, files, dirs, changed, unchanged, 0, 0, 0, 0, 0, 0, DryRun: true,
+                Skipped: false, SkippedMissing: missingPaths.Count, SkippedUnreadable: unreadablePaths.Count,
+                Warnings: warnings.Count > 0 ? warnings : null);
 
         int packsCreated = 0, volumesUploaded = 0;
         long uploadedBytes = 0;
@@ -124,7 +154,20 @@ public static class BackupRunner
             byte[] contentKey = ContentKey.Generate();
             var members = plan.Items.Select(i => new PackMember(i.Hash, openers[i.Hash])).ToList();
 
-            BuiltPack built = builder.Build(packId, plan.Codec, contentKey, members);
+            BuiltPack built = builder.Build(packId, plan.Codec, contentKey, members, tolerateMemberFailures: true);
+            foreach (FailedMember fm in built.FailedMembers)
+            {
+                failedContent[fm.Hash] = fm.Reason;
+                if (hashBoundPath.TryGetValue(fm.Hash, out string? bp))
+                    failedPath[bp] = fm.Reason;
+            }
+
+            if (built.Entries.Count == 0)
+            {
+                foreach (string vp in built.VolumePaths) TryDelete(vp);
+                continue;
+            }
+
             for (int i = 0; i < built.VolumePaths.Count; i++)
             {
                 string volName = RepoLayout.Volume(packId, i);
@@ -142,6 +185,10 @@ public static class BackupRunner
             packsCreated++;
         }
 
+        entries = FinalizeEntries(entries, failedContent, failedPath, prior, missingPaths, unreadablePaths, warnings);
+        int skippedMissing = missingPaths.Count;
+        int skippedUnreadable = unreadablePaths.Count;
+
         string snapshotId = NewSnapshotId();
         await SnapshotStore.WriteAsync(store, key, snapshotId, DateTimeOffset.UtcNow, entries, index, ct).ConfigureAwait(false);
 
@@ -151,7 +198,9 @@ public static class BackupRunner
                 await RetainAndGcAsync(store, key, index, o, ct).ConfigureAwait(false);
 
         return new BackupReport(snapshotId, files, dirs, changed, unchanged, packsCreated, volumesUploaded,
-            uploadedBytes, snapsDeleted, packsDeleted, eligibleCompaction, DryRun: false);
+            uploadedBytes, snapsDeleted, packsDeleted, eligibleCompaction, DryRun: false,
+            Skipped: false, SkippedMissing: skippedMissing, SkippedUnreadable: skippedUnreadable,
+            Warnings: warnings.Count > 0 ? warnings : null);
         }
         finally
         {
@@ -159,6 +208,41 @@ public static class BackupRunner
             try { await renewLoop.ConfigureAwait(false); } catch { /* ignore */ }
             await lockHandle.DisposeAsync().ConfigureAwait(false);
         }
+    }
+
+    internal static List<SnapshotEntry> FinalizeEntries(
+        List<SnapshotEntry> entries,
+        IReadOnlyDictionary<string, SkipReason> failedContent,
+        IReadOnlyDictionary<string, SkipReason> failedPath,
+        IReadOnlyDictionary<string, PriorFile> prior,
+        HashSet<string> missingPaths,
+        HashSet<string> unreadablePaths,
+        List<SkipWarning> warnings)
+    {
+        if (failedContent.Count == 0) return entries;
+
+        var finalized = new List<SnapshotEntry>(entries.Count);
+        foreach (SnapshotEntry e in entries)
+        {
+            if (e.IsDirectory || e.Hash is null || !failedContent.ContainsKey(e.Hash))
+            { finalized.Add(e); continue; }
+
+            bool isBound = failedPath.ContainsKey(e.RelativePath);
+            SkipReason reason = isBound ? failedPath[e.RelativePath] : SkipReason.Unreadable;
+
+            if (prior.TryGetValue(e.RelativePath, out PriorFile? pf))
+                finalized.Add(new SnapshotEntry(e.RelativePath, false, pf.Size, pf.Mtime, pf.Mode, pf.Hash));
+
+            if (reason == SkipReason.Unreadable)
+            {
+                unreadablePaths.Add(e.RelativePath);
+                // 报错于报告:打不开的文件/目录都产出一条警告(打包期 boundPath 与 dedup 兄弟均报)。
+                warnings.Add(new SkipWarning(e.RelativePath, SkipReason.Unreadable,
+                    isBound ? "unreadable while packing" : "dedup sibling of unreadable content"));
+            }
+            else missingPaths.Add(e.RelativePath);
+        }
+        return finalized;
     }
 
     private static async Task RenewLockAsync(ILockHandle handle, CancellationToken ct)
@@ -227,7 +311,7 @@ public static class BackupRunner
         Model.SnapshotRoot root = await SnapshotStore.ReadRootAsync(store, key, latest.Id, ct).ConfigureAwait(false);
         await foreach (SnapshotFile f in SnapshotStore.EnumerateAsync(store, key, root.RootTree, ct).ConfigureAwait(false))
             if (!f.IsDirectory && f.Hash is not null)
-                prior[f.Path] = new PriorFile(f.Size, f.Mtime, f.Hash);
+                prior[f.Path] = new PriorFile(f.Size, f.Mtime, f.Hash, f.Mode);
         return prior;
     }
 

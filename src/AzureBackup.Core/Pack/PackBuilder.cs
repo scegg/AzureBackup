@@ -1,5 +1,6 @@
 using AzureBackup.Core.Compression;
 using AzureBackup.Core.Crypto;
+using AzureBackup.Core.Scan;
 using AzureBackup.Core.Volumes;
 
 namespace AzureBackup.Core.Pack;
@@ -17,7 +18,11 @@ public sealed record BuiltPack(
     IReadOnlyList<string> VolumePaths,
     long PlaintextSize,
     long CiphertextSize,
-    IReadOnlyDictionary<string, ContentSpan> Entries);
+    IReadOnlyDictionary<string, ContentSpan> Entries,
+    IReadOnlyList<FailedMember> FailedMembers);
+
+/// <summary>打包时未能读取的成员(仅容错模式下产生)。</summary>
+public readonly record struct FailedMember(string Hash, SkipReason Reason, string? Detail);
 
 /// <summary>
 /// Builds a pack: concatenate member contents (recording spans) → compress → segmented
@@ -39,7 +44,8 @@ public sealed class PackBuilder
         _segmentSize = segmentSize;
     }
 
-    public BuiltPack Build(string packId, CompressionCodec codec, byte[] contentKey, IReadOnlyList<PackMember> members)
+    public BuiltPack Build(string packId, CompressionCodec codec, byte[] contentKey,
+        IReadOnlyList<PackMember> members, bool tolerateMemberFailures = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(packId);
         ArgumentNullException.ThrowIfNull(contentKey);
@@ -49,6 +55,7 @@ public sealed class PackBuilder
         string plaintextPath = Path.Combine(_workDir, packId + ".plain");
         string compressedPath = Path.Combine(_workDir, packId + ".comp");
         var entries = new Dictionary<string, ContentSpan>(StringComparer.Ordinal);
+        var failed = new List<FailedMember>();
 
         try
         {
@@ -59,10 +66,26 @@ public sealed class PackBuilder
                 {
                     if (entries.ContainsKey(m.Hash))
                         continue; // identical content already placed (dedup within pack)
-                    using Stream src = m.Open();
-                    long copied = Copy(src, pt);
-                    entries[m.Hash] = new ContentSpan(offset, copied);
-                    offset += copied;
+                    Stream? src = null;
+                    try { src = m.Open(); }
+                    catch (Exception ex) when (tolerateMemberFailures && IsSkippable(ex))
+                    {
+                        failed.Add(new FailedMember(m.Hash, Classify(ex), ex.Message));
+                        continue;
+                    }
+                    try
+                    {
+                        long copied = Copy(src, pt);
+                        entries[m.Hash] = new ContentSpan(offset, copied);
+                        offset += copied;
+                    }
+                    catch (Exception ex) when (tolerateMemberFailures && IsSkippable(ex))
+                    {
+                        failed.Add(new FailedMember(m.Hash, Classify(ex), ex.Message));
+                        offset = pt.Position; // 排除脏字节,后续成员 offset 续接
+                        continue;
+                    }
+                    finally { src?.Dispose(); }
                 }
             }
             long plaintextSize = offset;
@@ -76,7 +99,8 @@ public sealed class PackBuilder
             using (Stream compressed = File.OpenRead(compressedPath))
                 SegmentedCipher.Encrypt(contentKey, compressed, writer, _segmentSize);
 
-            return new BuiltPack(packId, codec, [.. writer.VolumePaths], plaintextSize, writer.TotalBytesWritten, entries);
+            return new BuiltPack(packId, codec, [.. writer.VolumePaths], plaintextSize,
+                writer.TotalBytesWritten, entries, failed);
         }
         finally
         {
@@ -84,6 +108,14 @@ public sealed class PackBuilder
             TryDelete(compressedPath);
         }
     }
+
+    private static bool IsSkippable(Exception ex)
+        => ex is FileNotFoundException or DirectoryNotFoundException
+              or UnauthorizedAccessException or IOException;
+
+    private static SkipReason Classify(Exception ex)
+        => ex is FileNotFoundException or DirectoryNotFoundException
+            ? SkipReason.Missing : SkipReason.Unreadable;
 
     private static long Copy(Stream src, Stream dst)
     {
