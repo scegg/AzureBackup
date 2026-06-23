@@ -143,4 +143,48 @@ public sealed class PackBuilderTests : IDisposable
 
     private static byte[] Slice(byte[] data, ContentSpan span)
         => data.AsSpan((int)span.Offset, (int)span.Size).ToArray();
+
+    [Fact]
+    public void Build_tolerates_failing_member_and_reports_it()
+    {
+        if (!XzCompressor.IsAvailable()) return;
+        string work = Path.Combine(Path.GetTempPath(), "azbk-pb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        try
+        {
+            byte[] key = ContentKey.Generate();
+            var members = new List<PackMember>
+            {
+                new("hashGOOD", () => new MemoryStream(System.Text.Encoding.UTF8.GetBytes("alpha"))),
+                new("hashBAD",  () => throw new FileNotFoundException("gone")),
+                new("hashGOOD2",() => new MemoryStream(System.Text.Encoding.UTF8.GetBytes("beta"))),
+            };
+
+            BuiltPack built = new PackBuilder(work, 1024)
+                .Build("pid", CompressionCodec.Store, key, members, tolerateMemberFailures: true);
+
+            Assert.Contains("hashGOOD", built.Entries.Keys);
+            Assert.Contains("hashGOOD2", built.Entries.Keys);
+            Assert.DoesNotContain("hashBAD", built.Entries.Keys);
+            Assert.Contains("hashBAD", built.FailedMembers.Select(f => f.Hash));
+        }
+        finally { try { Directory.Delete(work, true); } catch { } }
+    }
+
+    [Fact]
+    public void Build_without_tolerance_rethrows_member_failure()
+    {
+        string work = Path.Combine(Path.GetTempPath(), "azbk-pb-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(work);
+        try
+        {
+            var members = new List<PackMember>
+            {
+                new("h", () => throw new FileNotFoundException("gone")),
+            };
+            Assert.ThrowsAny<IOException>(() =>
+                new PackBuilder(work, 1024).Build("pid", CompressionCodec.Store, ContentKey.Generate(), members));
+        }
+        finally { try { Directory.Delete(work, true); } catch { } }
+    }
 }
