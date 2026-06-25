@@ -86,7 +86,8 @@ CONTAINER="${AZURE_STORAGE_CONTAINER:-test}"
 PASSWORD="${AZBACKUP_PASSWORD:-改成你的口令}"
 SRCPATH="${NAS_SOURCE_PATH:-/volume1/path/to/backup}"
 DATATIER="${AZBACKUP_DATA_TIER:-Hot}"
-RETCOUNT="${AZBACKUP_RETENTION_COUNT:-7}"
+# 默认保留策略:不设数量上限,保留 180 天(见 EnvOptions 默认)。仅当显式给 COUNT 才写入。
+RETCOUNT="${AZBACKUP_RETENTION_COUNT:-}"
 
 compose="$OUT/docker-compose.yml"
 cat > "$compose" <<YAML
@@ -111,9 +112,10 @@ services:
       AZURE_STORAGE_CONTAINER: "${CONTAINER}"
       AZBACKUP_PASSWORD: "${PASSWORD}"
       AZBACKUP_DATA_TIER: "${DATATIER}"
-      AZBACKUP_RETENTION_COUNT: "${RETCOUNT}"
-      # 可选:
-      # AZBACKUP_RETENTION_DAYS: "30"
+      # 保留策略默认:不限数量 + 180 天(对齐 Archive 最短存储期)。如需覆盖:
+      ${RETCOUNT:+AZBACKUP_RETENTION_COUNT: "${RETCOUNT}"}
+      # AZBACKUP_RETENTION_COUNT: "7"     # 设数量上限(默认不限)
+      # AZBACKUP_RETENTION_DAYS: "180"    # 默认 180;可改
       # AZBACKUP_DRY_RUN: "true"
       # AZBACKUP_EXCLUDE_FILE: "/config/exclude.txt"
     volumes:
