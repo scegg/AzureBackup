@@ -65,8 +65,8 @@
 | `AZBACKUP_PRESERVE_SYMLINKS?` | `preserveSymlinks` | 保留符号链接 | `true` |
 | `AZBACKUP_PRESERVE_HARDLINKS?` | `preserveHardlinks` | 保留硬链接关系 | `true` |
 | `AZBACKUP_PRESERVE_ATTRS?` | `preserveAttrs` | 保留属主/权限/xattr/mtime | `true` |
-| `AZBACKUP_RETENTION_COUNT?` | `retentionCount` | 保留最近 X 个 | — |
-| `AZBACKUP_RETENTION_DAYS?` | `retentionDays` | 保留最近 Y 天 | — |
+| `AZBACKUP_RETENTION_COUNT?` | `retentionCount` | 保留最近 X 个 | —(不限数量) |
+| `AZBACKUP_RETENTION_DAYS?` | `retentionDays` | 保留最近 Y 天 | `180` |
 | `AZBACKUP_RETENTION_MODE?` | `retentionMode` | COUNT+DAYS 组合:`and`/`or` | `and` |
 | `AZBACKUP_DATA_TIER?` | `dataTier` | 数据本体存储层 | `Archive` |
 

@@ -70,7 +70,8 @@ internal static class EnvOptions
             NoCompress = noCompress,
             ForceHash = job?.ForceHash ?? ParseBool(Get("AZBACKUP_FORCE_HASH")),
             RetentionCount = job?.RetentionCount ?? ParseNullableInt(Get("AZBACKUP_RETENTION_COUNT")),
-            RetentionDays = job?.RetentionDays ?? ParseNullableInt(Get("AZBACKUP_RETENTION_DAYS")),
+            // 默认保留 180 天(对齐 Archive 层最短存储期,避免早删费用);默认不设数量上限。
+            RetentionDays = job?.RetentionDays ?? ParseNullableInt(Get("AZBACKUP_RETENTION_DAYS")) ?? 180,
             RetentionMode = string.Equals(modeStr, "or", StringComparison.OrdinalIgnoreCase) ? RetentionMode.Or : RetentionMode.And,
             CompactionThreshold = GarbageCollector.ParseThreshold(job?.PackCompaction ?? Get("AZBACKUP_PACK_COMPACTION") ?? "30%"),
             RunGc = !string.Equals(Get("AZBACKUP_GC_MODE"), "off", StringComparison.OrdinalIgnoreCase),
